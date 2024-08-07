@@ -4,6 +4,7 @@ include("optimize.jl")
 
 function plot_modulation!(ax, parameters; num_phases = 100)
     modulation = critical_current_modulation(parameters; num_phases)
+#modulation = upper_critical_current_modulation(parameters; num_phases)
 
     θas = modulation[:, 1]
     ics = modulation[:, 2]
