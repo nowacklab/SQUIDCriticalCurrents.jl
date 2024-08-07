@@ -2,6 +2,8 @@ import Contour
 import Roots
 using Statistics
 
+# This is a slow implementation for now. Lots of low-hanging fruit.
+
 i1(φ) = sin(φ)
 di1(φ) = cos(φ)
 i2(φ) = sin(φ)
@@ -40,8 +42,10 @@ function interpolate_linear(xs, ys, x)
     end
     i = findlast(xs .<= x)
     if isnothing(i) || length(xs) <= i
-        if x == xs[end]
+        if isapprox(x, xs[end])
             return ys[lastindex(xs)]
+        elseif isapprox(x, xs[1])
+            return ys[firstindex(xs)]
         end
         xmin, xmax = extrema(xs)
         throw(DomainError(x,
@@ -65,22 +69,34 @@ function critical_current_modulation(parameters; num_phases = 100)
 end
 
 function modulation_endpoints(modulation)
-    # TODO: Sometimes the curve in ics is not single-valued (at the cusp).
-    # Informally, the intersection on the positive branch is above the cusp.
-    # This is breaking the endpoint detection.
     icp = 0 .<= modulation[:,2]
     θas = modulation[icp, 1]
     ics = modulation[icp, 2]
-    θamin, θamax = extrema(θas)
-    minrange = θamin .<= θas .<= -2π + θamax
-    maxrange = 2π + θamin .<= θas .<= θamax
-    mxs, mys = ics[minrange], θas[minrange]
-    fm = x -> interpolate_linear(mxs, mys, x)
-    pxs, pys = reverse(ics[maxrange]), reverse(θas[maxrange])
-    fp = x -> interpolate_linear(pxs, pys, x)
-    domain = (max(mxs[1], pxs[1]), min(mxs[end], pxs[end]))
-    ic0 = Roots.find_zero(x -> fp(x) - fm(x) - 2π, domain)
-    return ((fm(ic0), ic0), (fp(ic0), ic0))
+    θamin, imin = findmin(θas)
+    θamax, imax = findmax(θas)
+
+    θaminrange = θamin .<= θas .<= -2π + θamax
+    # TODO: Check that this Δθa sign heuristic always works.
+    # Nope.
+    finalsign = sign(θas[end] - θas[end-1])
+    dθarange = finalsign .== sign.([[θas[1] - θas[end]]; θas[2:end] .- θas[1:end-1]])
+    θamaxrange = 2π + θamin .<= θas .<= θamax
+    minrange = θaminrange .&& dθarange
+    mxs, mys = θas[minrange], ics[minrange]
+    mperm = sortperm(mxs)
+    mxs, mys = mxs[mperm], mys[mperm]
+    maxrange = θamaxrange .&& dθarange
+    pxs, pys = θas[maxrange], ics[maxrange]
+    pperm = sortperm(pxs)
+    pxs, pys = pxs[pperm], pys[pperm]
+    domain = (max(mxs[1], pxs[1] - 2π), min(mxs[end], pxs[end] - 2π))
+    fm(θa) = interpolate_linear(mxs, mys, θa)
+    fp(θa) = interpolate_linear(pxs, pys, θa + 2π)
+    θa0 = Roots.find_zero(θa -> fp(θa) - fm(θa), domain)
+    return (
+        (θa0, fm(θa0)),
+        (θa0 + 2π, fp(θa0)),
+    )
 end
 
 function squid_has_vanishing_critical_current(parameters)
@@ -108,7 +124,9 @@ function positive_modulation(parameters; num_phases = 100)
         return (pθas[perm], pics[perm])
     end
     (θa_min, ic_min), (θa_max, ic_max) = modulation_endpoints(modulation)
-    positive_branch = positive_ics .&& θa_min .<= modulation[:, 1] .<= θa_max
+    finalsign = sign(pθas[end] - pθas[end-1])
+    dθarange = finalsign .== sign.([[θas[1] - θas[end]]; θas[2:end] .- θas[1:end-1]])
+    positive_branch = positive_ics .&& dθarange .&& θa_min .<= modulation[:, 1] .<= θa_max
     branch_θas = modulation[:, 1][positive_branch]
     branch_ics = modulation[:, 2][positive_branch]
     perm = sortperm(branch_θas)

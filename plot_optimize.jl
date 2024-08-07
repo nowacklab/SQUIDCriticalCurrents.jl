@@ -11,11 +11,6 @@ function plot_modulation!(ax, parameters; num_phases = 100)
     positive_ics = 0 .<= ics
     θa_min, θa_max = extrema(θas[positive_ics])
     θa_span = θa_max - θa_min
-    if θa_span <= 2π
-        println("SMALL: $(θa_span - 2π)")
-    else
-        println("LARGE")
-    end
 
     locus_color = :gray
     for θa_offset in (-1:1) .* 2π
